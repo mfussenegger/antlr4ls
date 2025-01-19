@@ -1,0 +1,5 @@
+grammar Sample;
+
+identifier
+    : wrong
+    ;
