@@ -37,6 +37,7 @@ import org.eclipse.lsp4j.MarkupKind;
 import org.eclipse.lsp4j.Position;
 import org.eclipse.lsp4j.PublishDiagnosticsParams;
 import org.eclipse.lsp4j.Range;
+import org.eclipse.lsp4j.ReferenceParams;
 import org.eclipse.lsp4j.ServerCapabilities;
 import org.eclipse.lsp4j.ServerInfo;
 import org.eclipse.lsp4j.jsonrpc.messages.Either;
@@ -128,6 +129,7 @@ public class Antlr4Server implements LanguageServer, LanguageClientAware {
 
             @Override
             public CompletableFuture<Hover> hover(HoverParams params) {
+                // TODO: cache tool/grammar
                 var textDocument = params.getTextDocument();
                 var position = params.getPosition();
                 String path = Paths.get(URI.create(textDocument.getUri())).toString();
@@ -144,6 +146,7 @@ public class Antlr4Server implements LanguageServer, LanguageClientAware {
 
             @Override
             public CompletableFuture<Either<List<? extends Location>, List<? extends LocationLink>>> definition(DefinitionParams params) {
+                // TODO: cache tool/grammar
                 var textDocument = params.getTextDocument();
                 var position = params.getPosition();
                 String path = Paths.get(URI.create(textDocument.getUri())).toString();
@@ -167,6 +170,42 @@ public class Antlr4Server implements LanguageServer, LanguageClientAware {
                     }
                 }
                 return CompletableFuture.completedFuture(Either.forLeft(locations));
+            }
+
+            @Override
+            public CompletableFuture<List<? extends Location>> references(ReferenceParams params) {
+                // TODO: cache tool/grammar
+                var textDoc = params.getTextDocument();
+                var position = params.getPosition();
+                boolean includeDeclaration = params.getContext().isIncludeDeclaration();
+                String path = Paths.get(URI.create(textDoc.getUri())).toString();
+                Tool antlr = new Tool();
+                GrammarRootAST rootAST = antlr.parseGrammar(path);
+                Tree tree = findNode(position, rootAST);
+                if (tree instanceof RuleAST) {
+                    tree = tree.getChild(0);
+                }
+                if (tree == null) {
+                    return CompletableFuture.completedFuture(List.of());
+                }
+                String text = tree.getText();
+                List<GrammarAST> candidates = rootAST.getNodesWithType(tree.getType());
+                ArrayList<Location> locations = new ArrayList<>();
+                for (var candidate : candidates) {
+                    if (!candidate.getText().equals(text)) {
+                        continue;
+                    }
+                    if (!includeDeclaration && candidate.getParent() instanceof RuleAST) {
+                        continue;
+                    }
+                    int character = candidate.getCharPositionInLine();
+                    int lnum = candidate.getLine() - 1;
+                    Position start = new Position(lnum, character);
+                    Position end = new Position(lnum, character + text.length());
+                    Range range = new Range(start, end);
+                    locations.add(new Location(textDoc.getUri(), range));
+                }
+                return CompletableFuture.completedFuture(locations);
             }
         };
     }
@@ -200,6 +239,16 @@ public class Antlr4Server implements LanguageServer, LanguageClientAware {
                 }
                 super.enterElement(tree);
             }
+
+            @Override
+            protected void enterLexerRule(GrammarAST tree) {
+                Tree child = tree.getChild(0);
+                if (isAtPosition(child, position)) {
+                    result.set(child);
+                    return;
+                }
+                super.enterRule(tree);
+            }
         };
         grammarTreeVisitor.visitGrammar(rootAST);
         return result.get();
@@ -224,6 +273,7 @@ public class Antlr4Server implements LanguageServer, LanguageClientAware {
         var capabilities = new ServerCapabilities();
         capabilities.setHoverProvider(true);
         capabilities.setDefinitionProvider(true);
+        capabilities.setReferencesProvider(true);
         var serverInfo = new ServerInfo("antlr4ls", "0.1.0");
         var result = new InitializeResult(capabilities, serverInfo);
         return CompletableFuture.completedFuture(result);

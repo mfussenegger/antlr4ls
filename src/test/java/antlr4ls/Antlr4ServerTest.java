@@ -25,6 +25,8 @@ import org.eclipse.lsp4j.MessageParams;
 import org.eclipse.lsp4j.Position;
 import org.eclipse.lsp4j.PublishDiagnosticsParams;
 import org.eclipse.lsp4j.Range;
+import org.eclipse.lsp4j.ReferenceContext;
+import org.eclipse.lsp4j.ReferenceParams;
 import org.eclipse.lsp4j.ShowMessageRequestParams;
 import org.eclipse.lsp4j.TextDocumentIdentifier;
 import org.eclipse.lsp4j.jsonrpc.messages.Either;
@@ -149,5 +151,45 @@ public class Antlr4ServerTest {
             .satisfies(locations -> assertThat((List<Location>) locations).containsExactly(
                 new Location(uri, new Range(new Position(13, 0), new Position(13, 3)))
             ));
+    }
+
+    @Test
+    public void test_references_for_expression() throws Exception {
+        Antlr4Server server = new Antlr4Server();
+        TestClient client = new TestClient();
+        server.connect(client);
+
+        CompletableFuture<InitializeResult> initialize = server.initialize(new InitializeParams());
+        assertThat(initialize).succeedsWithin(1, TimeUnit.SECONDS);
+        TextDocumentService textDocumentService = server.getTextDocumentService();
+        URL resource = Antlr4ServerTest.class.getClassLoader().getResource("Interpreter.g4");
+        String uri = resource.toString();
+        var textDocument = new TextDocumentIdentifier(uri);
+        textDocumentService.didSave(new DidSaveTextDocumentParams(textDocument));
+
+        Position position = new Position(3, 10);
+        var referencesResult = textDocumentService.references(new ReferenceParams(textDocument, position, new ReferenceContext(false)));
+        assertThat(referencesResult).succeedsWithin(1, TimeUnit.SECONDS)
+            .satisfies(locations -> assertThat(locations).hasSize(3));
+    }
+
+    @Test
+    public void test_references_for_terminal() throws Exception {
+        Antlr4Server server = new Antlr4Server();
+        TestClient client = new TestClient();
+        server.connect(client);
+
+        CompletableFuture<InitializeResult> initialize = server.initialize(new InitializeParams());
+        assertThat(initialize).succeedsWithin(1, TimeUnit.SECONDS);
+        TextDocumentService textDocumentService = server.getTextDocumentService();
+        URL resource = Antlr4ServerTest.class.getClassLoader().getResource("Interpreter.g4");
+        String uri = resource.toString();
+        var textDocument = new TextDocumentIdentifier(uri);
+        textDocumentService.didSave(new DidSaveTextDocumentParams(textDocument));
+
+        Position position = new Position(12, 2); // MINUS
+        var referencesResult = textDocumentService.references(new ReferenceParams(textDocument, position, new ReferenceContext(false)));
+        assertThat(referencesResult).succeedsWithin(1, TimeUnit.SECONDS)
+            .satisfies(locations -> assertThat(locations).hasSize(1));
     }
 }
