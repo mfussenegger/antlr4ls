@@ -4,13 +4,19 @@ package antlr4ls;
 import java.net.URI;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
 
+import org.antlr.runtime.tree.Tree;
 import org.antlr.v4.Tool;
+import org.antlr.v4.parse.GrammarTreeVisitor;
 import org.antlr.v4.tool.ANTLRMessage;
 import org.antlr.v4.tool.ANTLRToolListener;
 import org.antlr.v4.tool.Grammar;
+import org.antlr.v4.tool.ast.GrammarAST;
 import org.antlr.v4.tool.ast.GrammarRootAST;
+import org.eclipse.lsp4j.DefinitionParams;
 import org.eclipse.lsp4j.Diagnostic;
 import org.eclipse.lsp4j.DiagnosticSeverity;
 import org.eclipse.lsp4j.DidChangeConfigurationParams;
@@ -19,13 +25,20 @@ import org.eclipse.lsp4j.DidChangeWatchedFilesParams;
 import org.eclipse.lsp4j.DidCloseTextDocumentParams;
 import org.eclipse.lsp4j.DidOpenTextDocumentParams;
 import org.eclipse.lsp4j.DidSaveTextDocumentParams;
+import org.eclipse.lsp4j.Hover;
+import org.eclipse.lsp4j.HoverParams;
 import org.eclipse.lsp4j.InitializeParams;
 import org.eclipse.lsp4j.InitializeResult;
+import org.eclipse.lsp4j.Location;
+import org.eclipse.lsp4j.LocationLink;
+import org.eclipse.lsp4j.MarkupContent;
+import org.eclipse.lsp4j.MarkupKind;
 import org.eclipse.lsp4j.Position;
 import org.eclipse.lsp4j.PublishDiagnosticsParams;
 import org.eclipse.lsp4j.Range;
 import org.eclipse.lsp4j.ServerCapabilities;
 import org.eclipse.lsp4j.ServerInfo;
+import org.eclipse.lsp4j.jsonrpc.messages.Either;
 import org.eclipse.lsp4j.services.LanguageClient;
 import org.eclipse.lsp4j.services.LanguageClientAware;
 import org.eclipse.lsp4j.services.LanguageServer;
@@ -56,7 +69,7 @@ public class Antlr4Server implements LanguageServer, LanguageClientAware {
         // trigger in didChange with debounce, asyncCompute?
         ArrayList<Diagnostic> diagnostics = new ArrayList<>();
         String path = Paths.get(URI.create(uri)).toString();
-        Tool antlr = new Tool(); // TODO: one tool instance?
+        Tool antlr = new Tool();
         antlr.addListener(new ANTLRToolListener() {
 
             @Override
@@ -111,7 +124,71 @@ public class Antlr4Server implements LanguageServer, LanguageClientAware {
                 }
                 lintFile(params.getTextDocument().getUri());
             }
+
+            @Override
+            public CompletableFuture<Hover> hover(HoverParams params) {
+                var textDocument = params.getTextDocument();
+                var position = params.getPosition();
+                String path = Paths.get(URI.create(textDocument.getUri())).toString();
+                Tool antlr = new Tool();
+                GrammarRootAST rootAST = antlr.parseGrammar(path);
+                Tree tree = findNode(position, rootAST);
+                // TODO: anything more useful to show?
+                String text = tree == null
+                    ? ""
+                    : tree.toStringTree();
+                Hover hover = new Hover(new MarkupContent(MarkupKind.PLAINTEXT, text));
+                return CompletableFuture.completedFuture(hover);
+            }
+
+            @Override
+            public CompletableFuture<Either<List<? extends Location>, List<? extends LocationLink>>> definition(DefinitionParams params) {
+                var textDocument = params.getTextDocument();
+                var position = params.getPosition();
+                String path = Paths.get(URI.create(textDocument.getUri())).toString();
+                Tool antlr = new Tool();
+                GrammarRootAST rootAST = antlr.parseGrammar(path);
+                Tree tree = findNode(position, rootAST);
+                ArrayList<Location> locations = new ArrayList<>();
+                if (tree != null) {
+                }
+                return CompletableFuture.completedFuture(Either.forLeft(locations));
+            }
         };
+    }
+
+    private static boolean isAtPosition(Tree tree, Position position) {
+        int line = position.getLine();
+        int character = position.getCharacter();
+        Tree child = tree.getChild(0);
+        return tree.getLine() - 1 == line
+            && tree.getCharPositionInLine() <= character
+            // TODO: better way to check if character is inside node?
+            && (child == null || child.getLine() > line || child.getLine() == line && child.getCharPositionInLine() > character);
+    }
+
+    protected Tree findNode(Position position, GrammarRootAST rootAST) {
+        AtomicReference<Tree> result = new AtomicReference<>();
+        GrammarTreeVisitor grammarTreeVisitor = new GrammarTreeVisitor() {
+
+            @Override
+            protected void enterRule(GrammarAST tree) {
+                if (isAtPosition(tree, position)) {
+                    result.set(tree);
+                }
+                super.enterRule(tree);
+            }
+
+            @Override
+            protected void enterElement(GrammarAST tree) {
+                if (isAtPosition(tree, position)) {
+                    result.set(tree);
+                }
+                super.enterElement(tree);
+            }
+        };
+        grammarTreeVisitor.visitGrammar(rootAST);
+        return result.get();
     }
 
     @Override
@@ -131,6 +208,8 @@ public class Antlr4Server implements LanguageServer, LanguageClientAware {
     @Override
     public CompletableFuture<InitializeResult> initialize(InitializeParams arg0) {
         var capabilities = new ServerCapabilities();
+        capabilities.setHoverProvider(true);
+        capabilities.setDefinitionProvider(true);
         var serverInfo = new ServerInfo("antlr4ls", "0.1.0");
         var result = new InitializeResult(capabilities, serverInfo);
         return CompletableFuture.completedFuture(result);
