@@ -126,4 +126,28 @@ public class Antlr4ServerTest {
                 new Location(uri, new Range(new Position(6, 0), new Position(6, 10)))
             ));
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void test_goto_definition_for_terminal() throws Exception {
+        Antlr4Server server = new Antlr4Server();
+        TestClient client = new TestClient();
+        server.connect(client);
+
+        CompletableFuture<InitializeResult> initialize = server.initialize(new InitializeParams());
+        assertThat(initialize).succeedsWithin(1, TimeUnit.SECONDS);
+        TextDocumentService textDocumentService = server.getTextDocumentService();
+        URL resource = Antlr4ServerTest.class.getClassLoader().getResource("Interpreter.g4");
+        String uri = resource.toString();
+        var textDocument = new TextDocumentIdentifier(uri);
+        textDocumentService.didSave(new DidSaveTextDocumentParams(textDocument));
+
+        Position position = new Position(7, 7);
+        CompletableFuture<Either<List<? extends Location>, List<? extends LocationLink>>> definition = textDocumentService.definition(new DefinitionParams(textDocument, position));
+        assertThat(definition).succeedsWithin(1, TimeUnit.SECONDS)
+            .extracting(either -> either.getLeft())
+            .satisfies(locations -> assertThat((List<Location>) locations).containsExactly(
+                new Location(uri, new Range(new Position(13, 0), new Position(13, 3)))
+            ));
+    }
 }
