@@ -24,6 +24,7 @@ import org.eclipse.lsp4j.MessageActionItem;
 import org.eclipse.lsp4j.MessageParams;
 import org.eclipse.lsp4j.Position;
 import org.eclipse.lsp4j.PublishDiagnosticsParams;
+import org.eclipse.lsp4j.Range;
 import org.eclipse.lsp4j.ShowMessageRequestParams;
 import org.eclipse.lsp4j.TextDocumentIdentifier;
 import org.eclipse.lsp4j.jsonrpc.messages.Either;
@@ -103,6 +104,7 @@ public class Antlr4ServerTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
     public void test_goto_definition_of_rule() throws Exception {
         Antlr4Server server = new Antlr4Server();
         TestClient client = new TestClient();
@@ -118,6 +120,10 @@ public class Antlr4ServerTest {
 
         Position position = new Position(8, 7);
         CompletableFuture<Either<List<? extends Location>, List<? extends LocationLink>>> definition = textDocumentService.definition(new DefinitionParams(textDocument, position));
-        assertThat(definition).succeedsWithin(1, TimeUnit.SECONDS);
+        assertThat(definition).succeedsWithin(1, TimeUnit.SECONDS)
+            .extracting(either -> either.getLeft())
+            .satisfies(locations -> assertThat((List<Location>) locations).containsExactly(
+                new Location(uri, new Range(new Position(6, 0), new Position(6, 10)))
+            ));
     }
 }

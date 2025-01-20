@@ -16,6 +16,8 @@ import org.antlr.v4.tool.ANTLRToolListener;
 import org.antlr.v4.tool.Grammar;
 import org.antlr.v4.tool.ast.GrammarAST;
 import org.antlr.v4.tool.ast.GrammarRootAST;
+import org.antlr.v4.tool.ast.RuleAST;
+import org.antlr.v4.tool.ast.RuleRefAST;
 import org.eclipse.lsp4j.DefinitionParams;
 import org.eclipse.lsp4j.Diagnostic;
 import org.eclipse.lsp4j.DiagnosticSeverity;
@@ -150,7 +152,19 @@ public class Antlr4Server implements LanguageServer, LanguageClientAware {
                 GrammarRootAST rootAST = antlr.parseGrammar(path);
                 Tree tree = findNode(position, rootAST);
                 ArrayList<Location> locations = new ArrayList<>();
-                if (tree != null) {
+                if (tree instanceof RuleRefAST ruleRefAST) {
+                    List<GrammarAST> candidates = rootAST.getNodesWithType(ruleRefAST.getType());
+                    for (var candidate : candidates) {
+                        Tree parent = candidate.getParent();
+                        if (parent instanceof RuleAST rule && rule.getRuleName().equals(ruleRefAST.getText())) {
+                            int character = rule.getCharPositionInLine();
+                            int lnum = rule.getLine() - 1;
+                            Position start = new Position(lnum, character);
+                            Position end = new Position(lnum, character + ruleRefAST.getText().length());
+                            Range range = new Range(start, end);
+                            locations.add(new Location(textDocument.getUri(), range));
+                        }
+                    }
                 }
                 return CompletableFuture.completedFuture(Either.forLeft(locations));
             }

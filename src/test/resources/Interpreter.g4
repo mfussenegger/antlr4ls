@@ -1,7 +1,7 @@
 grammar Interpreter;
 
 start
-    : expression  EOF
+    : expression EOF
     ;
 
 expression
