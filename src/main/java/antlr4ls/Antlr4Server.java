@@ -213,11 +213,9 @@ public class Antlr4Server implements LanguageServer, LanguageClientAware {
     private static boolean isAtPosition(Tree tree, Position position) {
         int line = position.getLine();
         int character = position.getCharacter();
-        Tree child = tree.getChild(0);
         return tree.getLine() - 1 == line
             && tree.getCharPositionInLine() <= character
-            // TODO: better way to check if character is inside node?
-            && (child == null || child.getLine() > line || child.getLine() == line && child.getCharPositionInLine() > character);
+            && character <= tree.getCharPositionInLine() + tree.getText().length();
     }
 
     protected Tree findNode(Position position, GrammarRootAST rootAST) {
